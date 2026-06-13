@@ -1,0 +1,13 @@
+{
+  "id": "aiMonitor",
+  "name": "AI Monitor",
+  "description": "Display Claude and Codex subscription usage from codexbar",
+  "version": "0.1.0",
+  "author": "felipscarvalho",
+  "type": "widget",
+  "capabilities": ["dankbar-widget", "ai-usage", "monitoring"],
+  "component": "./AiMonitorWidget.qml",
+  "icon": "smart_toy",
+  "requires": ["codexbar cli"],
+  "permissions": ["process"]
+}
