@@ -19,6 +19,8 @@ PluginComponent {
     property string selectedProvider: "claude"
     property var providerOrder: ["codex", "claude"]
 
+    readonly property string instanceId: "aiMonitor-" + Math.floor(Math.random() * 1e9)
+
     readonly property color cardColor: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
     readonly property color mutedColor: Theme.surfaceVariantText
 
@@ -60,7 +62,7 @@ PluginComponent {
     function fetchProvider(provider) {
         const cmd = "codexbar usage --provider " + provider + " --source cli --format json --pretty --no-color";
         Proc.runCommand(
-            "aiMonitor." + provider,
+            root.instanceId + "." + provider,
             ["zsh", "-lc", cmd],
             (stdout, exitCode) => handleProviderResult(provider, stdout, exitCode),
             0,
