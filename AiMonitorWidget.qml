@@ -90,6 +90,16 @@ PluginComponent {
             }
         }
 
+        // If this refresh failed but we already have a good reading for this
+        // provider, keep showing the last successful data (marked stale)
+        // instead of replacing it with an error placeholder. The cached data
+        // survives until the next successful collection.
+        if (item.error) {
+            const previous = providers.find(p => p.provider === provider);
+            if (previous && previous.usage && previous.usage.primary)
+                item = Object.assign({}, previous, { stale: true });
+        }
+
         upsertProvider(item);
         pendingRequests = Math.max(0, pendingRequests - 1);
         if (pendingRequests === 0) {
@@ -660,9 +670,10 @@ PluginComponent {
                             }
 
                             StyledText {
-                                text: root.loading ? "Updating..." : "Updated " + root.lastUpdatedText
+                                readonly property bool isStale: root.selectedData()?.stale === true
+                                text: root.loading ? "Updating..." : (isStale ? "Update failed · showing last data" : "Updated " + root.lastUpdatedText)
                                 font.pixelSize: Theme.fontSizeSmall
-                                color: root.mutedColor
+                                color: isStale ? Theme.warning : root.mutedColor
                             }
                         }
 
