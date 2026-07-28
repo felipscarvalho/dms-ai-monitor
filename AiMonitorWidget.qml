@@ -27,7 +27,7 @@ PluginComponent {
     readonly property int highestUsedPercent: {
         let maxUsed = 0;
         for (let i = 0; i < providers.length; i++) {
-            const used = providers[i]?.usage?.primary?.usedPercent ?? 0;
+            const used = usageSummaryWindow(providers[i])?.usedPercent ?? 0;
             maxUsed = Math.max(maxUsed, used);
         }
         return maxUsed;
@@ -96,7 +96,7 @@ PluginComponent {
         // survives until the next successful collection.
         if (item.error) {
             const previous = providers.find(p => p.provider === provider);
-            if (previous && previous.usage && previous.usage.primary)
+            if (usageSummaryWindow(previous))
                 item = Object.assign({}, previous, { stale: true });
         }
 
@@ -197,11 +197,41 @@ PluginComponent {
         return root.selectedProvider === provider ? Theme.primaryText : Theme.surfaceVariantText;
     }
 
+    function sessionUsageWindow(item) {
+        if (!item?.usage || item.provider === "codex")
+            return null;
+        return item.usage.primary || null;
+    }
+
+    function weeklyUsageWindow(item) {
+        if (!item?.usage)
+            return null;
+
+        if (item.provider !== "codex")
+            return item.usage.secondary || null;
+
+        // Codex now has a weekly-only allowance. codexbar currently keeps that
+        // seven-day window in `secondary`, with `primary` left null. Prefer the
+        // window duration so the widget remains correct if that slot changes.
+        const windows = [item.usage.primary, item.usage.secondary];
+        for (let i = 0; i < windows.length; i++) {
+            if (windows[i] && Number(windows[i].windowMinutes) === 7 * 24 * 60)
+                return windows[i];
+        }
+        return item.usage.secondary || item.usage.primary || null;
+    }
+
+    function usageSummaryWindow(item) {
+        if (item?.provider === "codex")
+            return weeklyUsageWindow(item);
+        return sessionUsageWindow(item) || weeklyUsageWindow(item);
+    }
+
     function compactProviderText(item) {
-        const usage = item?.usage;
-        if (!usage || !usage.primary)
+        const window = usageSummaryWindow(item);
+        if (!window)
             return providerLabel(item?.provider || "") + " ?";
-        return providerLabel(item.provider) + " " + usage.primary.usedPercent + "%";
+        return providerLabel(item.provider) + " " + window.usedPercent + "%";
     }
 
     function resetText(window, provider) {
@@ -361,7 +391,8 @@ PluginComponent {
         }
 
         StyledText {
-            text: tab.data?.usage?.primary ? tab.data.usage.primary.usedPercent + "%" : ""
+            readonly property var usageWindow: root.usageSummaryWindow(tab.data)
+            text: usageWindow ? usageWindow.usedPercent + "%" : ""
             font.pixelSize: Theme.fontSizeSmall
             color: tab.selected ? Theme.primaryText : Theme.surfaceVariantText
             anchors.right: parent.right
@@ -585,7 +616,7 @@ PluginComponent {
                                 ProgressTrack {
                                     width: 72
                                     height: 5
-                                    value: root.providerData("codex")?.usage?.primary?.usedPercent ?? 0
+                                    value: root.usageSummaryWindow(root.providerData("codex"))?.usedPercent ?? 0
                                     fillColor: root.providerData("codex")?.error ? Theme.error : root.providerIconColor("codex")
                                     trackColor: Theme.withAlpha(root.providerIconColor("codex"), 0.25)
                                 }
@@ -629,7 +660,7 @@ PluginComponent {
                                 ProgressTrack {
                                     width: 72
                                     height: 5
-                                    value: root.providerData("claude")?.usage?.primary?.usedPercent ?? 0
+                                    value: root.usageSummaryWindow(root.providerData("claude"))?.usedPercent ?? 0
                                     fillColor: root.providerData("claude")?.error ? Theme.error : root.providerIconColor("claude")
                                     trackColor: Theme.withAlpha(root.providerIconColor("claude"), 0.25)
                                 }
@@ -716,18 +747,19 @@ PluginComponent {
 
                         UsageSection {
                             title: "Session"
-                            windowData: root.selectedData()?.usage?.primary
+                            windowData: root.sessionUsageWindow(root.selectedData())
+                            visible: root.selectedProvider !== "codex"
                         }
 
                         UsageSection {
                             title: "Weekly"
-                            windowData: root.selectedData()?.usage?.secondary
+                            windowData: root.weeklyUsageWindow(root.selectedData())
                         }
 
                         UsageSection {
-                            title: root.selectedProvider === "claude" ? "Sonnet" : "Model"
+                            title: "Sonnet"
                             windowData: root.selectedData()?.usage?.tertiary || { usedPercent: 0 }
-                            visible: root.selectedProvider === "claude" || !!root.selectedData()?.usage?.tertiary
+                            visible: root.selectedProvider === "claude"
                         }
 
                         Divider {}
@@ -791,6 +823,6 @@ PluginComponent {
         }
     }
 
-    popoutWidth: 640
+    popoutWidth: 520
     popoutHeight: 640
 }
