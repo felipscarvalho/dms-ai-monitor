@@ -2,7 +2,7 @@
   "id": "aiMonitor",
   "name": "AI Monitor",
   "description": "Display Claude and Codex subscription usage from codexbar",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "felipscarvalho",
   "type": "widget",
   "capabilities": ["dankbar-widget", "ai-usage", "monitoring"],

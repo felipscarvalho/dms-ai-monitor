@@ -7,17 +7,20 @@ DankMaterialShell widget plugin for monitoring AI subscription usage through
 
 - DankMaterialShell
 - `codexbar`
-- Logged-in provider CLIs for the providers you want to monitor
+- An active Codex login (`codex login`) for Codex usage
+- Logged-in provider CLIs for other providers you want to monitor
 
 The widget currently reads:
 
 ```sh
-codexbar usage --provider codex --source cli --format json --pretty --no-color
+codexbar usage --provider codex --source oauth --format json --pretty --no-color
 codexbar usage --provider claude --source cli --format json --pretty --no-color
 ```
 
-Codex is displayed using its current weekly-only allowance. Claude keeps its
-session, weekly, and model-specific usage sections.
+The Codex OAuth source reuses the existing Codex login and does not require a
+separate AI Monitor sign-in. Codex displays its five-hour window and any
+additional weekly limit. Claude keeps its session, weekly, and model-specific
+usage sections.
 
 ## Install
 

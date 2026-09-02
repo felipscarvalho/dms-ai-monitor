@@ -27,8 +27,9 @@ PluginComponent {
     readonly property int highestUsedPercent: {
         let maxUsed = 0;
         for (let i = 0; i < providers.length; i++) {
-            const used = usageSummaryWindow(providers[i])?.usedPercent ?? 0;
-            maxUsed = Math.max(maxUsed, used);
+            const windows = [sessionUsageWindow(providers[i]), weeklyUsageWindow(providers[i])];
+            for (let j = 0; j < windows.length; j++)
+                maxUsed = Math.max(maxUsed, windows[j]?.usedPercent ?? 0);
         }
         return maxUsed;
     }
@@ -60,7 +61,8 @@ PluginComponent {
     }
 
     function fetchProvider(provider) {
-        const cmd = "codexbar usage --provider " + provider + " --source cli --format json --pretty --no-color";
+        const source = provider === "codex" ? "oauth" : "cli";
+        const cmd = "codexbar usage --provider " + provider + " --source " + source + " --format json --pretty --no-color";
         Proc.runCommand(
             root.instanceId + "." + provider,
             ["zsh", "-lc", cmd],
@@ -197,9 +199,23 @@ PluginComponent {
         return root.selectedProvider === provider ? Theme.primaryText : Theme.surfaceVariantText;
     }
 
-    function sessionUsageWindow(item) {
-        if (!item?.usage || item.provider === "codex")
+    function usageWindowByMinutes(item, windowMinutes) {
+        if (!item?.usage)
             return null;
+
+        const windows = [item.usage.primary, item.usage.secondary, item.usage.tertiary];
+        for (let i = 0; i < windows.length; i++) {
+            if (windows[i] && Number(windows[i].windowMinutes) === windowMinutes)
+                return windows[i];
+        }
+        return null;
+    }
+
+    function sessionUsageWindow(item) {
+        if (!item?.usage)
+            return null;
+        if (item.provider === "codex")
+            return usageWindowByMinutes(item, 5 * 60);
         return item.usage.primary || null;
     }
 
@@ -210,20 +226,12 @@ PluginComponent {
         if (item.provider !== "codex")
             return item.usage.secondary || null;
 
-        // Codex now has a weekly-only allowance. codexbar currently keeps that
-        // seven-day window in `secondary`, with `primary` left null. Prefer the
-        // window duration so the widget remains correct if that slot changes.
-        const windows = [item.usage.primary, item.usage.secondary];
-        for (let i = 0; i < windows.length; i++) {
-            if (windows[i] && Number(windows[i].windowMinutes) === 7 * 24 * 60)
-                return windows[i];
-        }
-        return item.usage.secondary || item.usage.primary || null;
+        // Identify Codex windows by duration so the widget remains correct if
+        // codexbar changes which primary/secondary slot carries each limit.
+        return usageWindowByMinutes(item, 7 * 24 * 60);
     }
 
     function usageSummaryWindow(item) {
-        if (item?.provider === "codex")
-            return weeklyUsageWindow(item);
         return sessionUsageWindow(item) || weeklyUsageWindow(item);
     }
 
@@ -746,14 +754,15 @@ PluginComponent {
                         spacing: Theme.spacingL
 
                         UsageSection {
-                            title: "Session"
+                            title: root.selectedProvider === "codex" ? "5-hour session" : "Session"
                             windowData: root.sessionUsageWindow(root.selectedData())
-                            visible: root.selectedProvider !== "codex"
+                            visible: windowData !== null
                         }
 
                         UsageSection {
                             title: "Weekly"
                             windowData: root.weeklyUsageWindow(root.selectedData())
+                            visible: windowData !== null
                         }
 
                         UsageSection {
