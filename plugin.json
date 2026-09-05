@@ -1,8 +1,8 @@
 {
   "id": "aiMonitor",
   "name": "AI Monitor",
-  "description": "Display Claude and Codex subscription usage from codexbar",
-  "version": "0.3.0",
+  "description": "Display Claude, Codex, and Antigravity (Gemini) subscription usage from codexbar",
+  "version": "0.4.0",
   "author": "felipscarvalho",
   "type": "widget",
   "capabilities": ["dankbar-widget", "ai-usage", "monitoring"],

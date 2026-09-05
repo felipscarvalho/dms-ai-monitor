@@ -17,6 +17,7 @@ cp "$src_dir/AiMonitorWidget.qml" "$dest_dir/AiMonitorWidget.qml"
 mkdir -p "$dest_dir/assets"
 cp "$src_dir/assets/openai.svg" "$dest_dir/assets/openai.svg"
 cp "$src_dir/assets/anthropic.svg" "$dest_dir/assets/anthropic.svg"
+cp "$src_dir/assets/gemini.svg" "$dest_dir/assets/gemini.svg"
 
 printf 'Installed %s to %s\n' "$plugin_id" "$dest_dir"
 

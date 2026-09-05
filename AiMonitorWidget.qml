@@ -17,7 +17,7 @@ PluginComponent {
     property int pendingRequests: 0
     property string lastUpdatedText: "Never"
     property string selectedProvider: "claude"
-    property var providerOrder: ["codex", "claude"]
+    property var providerOrder: ["codex", "claude", "antigravity"]
 
     readonly property string instanceId: "aiMonitor-" + Math.floor(Math.random() * 1e9)
 
@@ -29,7 +29,7 @@ PluginComponent {
         for (let i = 0; i < providers.length; i++) {
             const windows = [sessionUsageWindow(providers[i]), weeklyUsageWindow(providers[i])];
             for (let j = 0; j < windows.length; j++)
-                maxUsed = Math.max(maxUsed, windows[j]?.usedPercent ?? 0);
+                maxUsed = Math.max(maxUsed, usedPercentOf(windows[j]));
         }
         return maxUsed;
     }
@@ -60,8 +60,12 @@ PluginComponent {
             fetchProvider(providerOrder[i]);
     }
 
+    function providerSource(provider) {
+        return provider === "codex" ? "oauth" : "cli";
+    }
+
     function fetchProvider(provider) {
-        const source = provider === "codex" ? "oauth" : "cli";
+        const source = providerSource(provider);
         const cmd = "codexbar usage --provider " + provider + " --source " + source + " --format json --pretty --no-color";
         Proc.runCommand(
             root.instanceId + "." + provider,
@@ -96,7 +100,10 @@ PluginComponent {
         // provider, keep showing the last successful data (marked stale)
         // instead of replacing it with an error placeholder. The cached data
         // survives until the next successful collection.
-        if (item.error) {
+        // A provider can also come back "successful" but empty (antigravity
+        // reports source "offline" when its CLI session is not available), so
+        // treat a reading without any usable window as a failed refresh too.
+        if (item.error || !usageSummaryWindow(item)) {
             const previous = providers.find(p => p.provider === provider);
             if (usageSummaryWindow(previous))
                 item = Object.assign({}, previous, { stale: true });
@@ -156,6 +163,10 @@ PluginComponent {
             return "Codex";
         if (provider === "claude")
             return "Claude";
+        // The provider id stays "antigravity" (that is what codexbar expects),
+        // but the UI shows the model family it meters.
+        if (provider === "antigravity")
+            return "Gemini";
         return provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "AI";
     }
 
@@ -172,6 +183,17 @@ PluginComponent {
             if (lower.includes("pro"))
                 return "Pro";
             return "Pro";
+        }
+
+        if (provider === "antigravity") {
+            // codexbar reports the Google AI plan name, e.g. "Google AI Pro".
+            if (lower.includes("ultra"))
+                return "Ultra";
+            if (lower.includes("pro"))
+                return "Pro";
+            if (lower.includes("free"))
+                return "Free";
+            return raw || "CLI";
         }
 
         if (lower === "plus")
@@ -191,6 +213,8 @@ PluginComponent {
             return "file://" + pluginPath + "/assets/openai.svg";
         if (provider === "claude")
             return "file://" + pluginPath + "/assets/anthropic.svg";
+        if (provider === "antigravity")
+            return "file://" + pluginPath + "/assets/gemini.svg";
         return "";
     }
 
@@ -211,17 +235,39 @@ PluginComponent {
         return null;
     }
 
+    function extraRateWindow(item, id) {
+        const list = item?.usage?.extraRateWindows;
+        if (!Array.isArray(list))
+            return null;
+
+        for (let i = 0; i < list.length; i++) {
+            if (list[i]?.id === id)
+                return list[i].window || null;
+        }
+        return null;
+    }
+
     function sessionUsageWindow(item) {
         if (!item?.usage)
             return null;
         if (item.provider === "codex")
             return usageWindowByMinutes(item, 5 * 60);
+        if (item.provider === "antigravity") {
+            // Antigravity puts the Gemini weekly limit in primary and the
+            // third-party (Claude/GPT) five-hour limit in secondary, so the
+            // named extra windows are the only reliable way to tell the
+            // Gemini quota apart from the third-party one.
+            return extraRateWindow(item, "antigravity-quota-summary-gemini-5h");
+        }
         return item.usage.primary || null;
     }
 
     function weeklyUsageWindow(item) {
         if (!item?.usage)
             return null;
+
+        if (item.provider === "antigravity")
+            return extraRateWindow(item, "antigravity-quota-summary-gemini-weekly") || usageWindowByMinutes(item, 7 * 24 * 60);
 
         if (item.provider !== "codex")
             return item.usage.secondary || null;
@@ -231,15 +277,33 @@ PluginComponent {
         return usageWindowByMinutes(item, 7 * 24 * 60);
     }
 
+    function thirdPartySessionWindow(item) {
+        return extraRateWindow(item, "antigravity-quota-summary-3p-5h");
+    }
+
+    function thirdPartyWeeklyWindow(item) {
+        return extraRateWindow(item, "antigravity-quota-summary-3p-weekly");
+    }
+
     function usageSummaryWindow(item) {
         return sessionUsageWindow(item) || weeklyUsageWindow(item);
+    }
+
+    function hasUsageData(item) {
+        return usageSummaryWindow(item) !== null;
+    }
+
+    function usedPercentOf(window) {
+        // Antigravity reports fractional percentages, so round before display
+        // to keep the bar pill and the progress labels readable.
+        return Math.round(Number(window?.usedPercent) || 0);
     }
 
     function compactProviderText(item) {
         const window = usageSummaryWindow(item);
         if (!window)
             return providerLabel(item?.provider || "") + " ?";
-        return providerLabel(item.provider) + " " + window.usedPercent + "%";
+        return providerLabel(item.provider) + " " + usedPercentOf(window) + "%";
     }
 
     function resetText(window, provider) {
@@ -304,16 +368,11 @@ PluginComponent {
         return text;
     }
 
-    function extraUsageText(item) {
-        const remaining = item?.credits?.remaining;
-        if (remaining === undefined || remaining === null)
-            return "Credits remaining: --";
-        return "Credits remaining: " + remaining;
-    }
-
     function usageDashboardUrl() {
         if (selectedProvider === "claude")
             return "https://claude.ai/settings/usage";
+        if (selectedProvider === "antigravity")
+            return "https://antigravity.google/";
         return "https://chatgpt.com/codex/settings/usage";
     }
 
@@ -400,7 +459,7 @@ PluginComponent {
 
         StyledText {
             readonly property var usageWindow: root.usageSummaryWindow(tab.data)
-            text: usageWindow ? usageWindow.usedPercent + "%" : ""
+            text: usageWindow ? root.usedPercentOf(usageWindow) + "%" : ""
             font.pixelSize: Theme.fontSizeSmall
             color: tab.selected ? Theme.primaryText : Theme.surfaceVariantText
             anchors.right: parent.right
@@ -444,7 +503,10 @@ PluginComponent {
         property string title: ""
         property var windowData: null
         property string footer: ""
-        readonly property int usedPercent: Math.min(100, Math.max(0, windowData?.usedPercent ?? 0))
+        // Set while the provider has no reading yet, so the section keeps its
+        // place in the layout instead of popping in once the first fetch lands.
+        property bool pending: false
+        readonly property int usedPercent: Math.min(100, Math.max(0, root.usedPercentOf(windowData)))
 
         width: parent.width
         spacing: Theme.spacingS
@@ -457,16 +519,16 @@ PluginComponent {
         }
 
         ProgressTrack {
-            value: section.usedPercent
+            value: section.pending ? 0 : section.usedPercent
         }
 
         Row {
             width: parent.width
 
             StyledText {
-                text: section.usedPercent + "% used"
+                text: section.pending ? (root.loading ? "Loading..." : "No data") : section.usedPercent + "% used"
                 font.pixelSize: Theme.fontSizeMedium
-                color: Theme.surfaceText
+                color: section.pending ? root.mutedColor : Theme.surfaceText
                 width: parent.width * 0.4
             }
 
@@ -509,12 +571,6 @@ PluginComponent {
             font.weight: Font.Bold
             color: pill.pillColor
         }
-    }
-
-    component Divider: Rectangle {
-        width: parent.width
-        height: 1
-        color: Theme.withAlpha(Theme.surfaceVariantText, 0.16)
     }
 
     component ActionRow: Rectangle {
@@ -590,95 +646,61 @@ PluginComponent {
                     color: root.cardColor
 
                     Row {
+                        id: providerTabs
                         anchors.fill: parent
                         anchors.margins: Theme.spacingS
                         spacing: Theme.spacingS
 
-                        Rectangle {
-                            width: (parent.width - Theme.spacingS) / 2
-                            height: parent.height
-                            radius: Theme.cornerRadius
-                            color: root.selectedProvider === "codex" ? Theme.primary : "transparent"
+                        Repeater {
+                            model: root.providerOrder
 
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 3
+                            Rectangle {
+                                id: providerTab
 
-                                DankSVGIcon {
-                                    width: 22
-                                    height: 22
-                                    size: 22
-                                    source: root.providerIcon("codex")
-                                    colorOverride: root.providerIconColor("codex")
-                                    anchors.horizontalCenter: parent.horizontalCenter
+                                required property string modelData
+                                readonly property bool selected: root.selectedProvider === modelData
+
+                                width: (providerTabs.width - providerTabs.spacing * (root.providerOrder.length - 1)) / root.providerOrder.length
+                                height: providerTabs.height
+                                radius: Theme.cornerRadius
+                                color: providerTab.selected ? Theme.primary : "transparent"
+
+                                Column {
+                                    anchors.centerIn: parent
+                                    spacing: 3
+
+                                    DankSVGIcon {
+                                        width: 22
+                                        height: 22
+                                        size: 22
+                                        source: root.providerIcon(providerTab.modelData)
+                                        colorOverride: root.providerIconColor(providerTab.modelData)
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                    }
+
+                                    StyledText {
+                                        text: root.providerLabel(providerTab.modelData)
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.weight: providerTab.selected ? Font.Bold : Font.Medium
+                                        color: providerTab.selected ? Theme.primaryText : Theme.surfaceVariantText
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                    }
+
+                                    ProgressTrack {
+                                        width: Math.min(72, providerTab.width - Theme.spacingM)
+                                        height: 5
+                                        value: root.usedPercentOf(root.usageSummaryWindow(root.providerData(providerTab.modelData)))
+                                        fillColor: root.providerData(providerTab.modelData)?.error ? Theme.error : root.providerIconColor(providerTab.modelData)
+                                        trackColor: Theme.withAlpha(root.providerIconColor(providerTab.modelData), 0.25)
+                                    }
                                 }
 
-                                StyledText {
-                                    text: "Codex"
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.weight: root.selectedProvider === "codex" ? Font.Bold : Font.Medium
-                                    color: root.selectedProvider === "codex" ? Theme.primaryText : Theme.surfaceVariantText
-                                    anchors.horizontalCenter: parent.horizontalCenter
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.selectProvider(providerTab.modelData)
                                 }
-
-                                ProgressTrack {
-                                    width: 72
-                                    height: 5
-                                    value: root.usageSummaryWindow(root.providerData("codex"))?.usedPercent ?? 0
-                                    fillColor: root.providerData("codex")?.error ? Theme.error : root.providerIconColor("codex")
-                                    trackColor: Theme.withAlpha(root.providerIconColor("codex"), 0.25)
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: root.selectProvider("codex")
-                            }
-                        }
-
-                        Rectangle {
-                            width: (parent.width - Theme.spacingS) / 2
-                            height: parent.height
-                            radius: Theme.cornerRadius
-                            color: root.selectedProvider === "claude" ? Theme.primary : "transparent"
-
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 3
-
-                                DankSVGIcon {
-                                    width: 22
-                                    height: 22
-                                    size: 22
-                                    source: root.providerIcon("claude")
-                                    colorOverride: root.providerIconColor("claude")
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-
-                                StyledText {
-                                    text: "Claude"
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.weight: root.selectedProvider === "claude" ? Font.Bold : Font.Medium
-                                    color: root.selectedProvider === "claude" ? Theme.primaryText : Theme.surfaceVariantText
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                }
-
-                                ProgressTrack {
-                                    width: 72
-                                    height: 5
-                                    value: root.usageSummaryWindow(root.providerData("claude"))?.usedPercent ?? 0
-                                    fillColor: root.providerData("claude")?.error ? Theme.error : root.providerIconColor("claude")
-                                    trackColor: Theme.withAlpha(root.providerIconColor("claude"), 0.25)
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: root.selectProvider("claude")
                             }
                         }
                     }
@@ -754,60 +776,45 @@ PluginComponent {
                         spacing: Theme.spacingL
 
                         UsageSection {
-                            title: root.selectedProvider === "codex" ? "5-hour session" : "Session"
+                            title: "Session"
                             windowData: root.sessionUsageWindow(root.selectedData())
-                            visible: windowData !== null
+                            pending: windowData === null
+                            // Every provider reports both windows, so before the
+                            // first reading arrives the sections stay on screen
+                            // as placeholders. Once there is data, a window that
+                            // is genuinely missing is hidden instead.
+                            visible: !pending || !root.hasUsageData(root.selectedData())
                         }
 
                         UsageSection {
                             title: "Weekly"
                             windowData: root.weeklyUsageWindow(root.selectedData())
-                            visible: windowData !== null
+                            pending: windowData === null
+                            visible: !pending || !root.hasUsageData(root.selectedData())
                         }
 
                         UsageSection {
                             title: "Sonnet"
                             windowData: root.selectedData()?.usage?.tertiary || { usedPercent: 0 }
+                            pending: !root.hasUsageData(root.selectedData())
                             visible: root.selectedProvider === "claude"
                         }
 
-                        Divider {}
+                        // Antigravity also routes Claude and GPT models through
+                        // a separate third-party quota, tracked independently
+                        // from the Gemini one above.
+                        UsageSection {
+                            title: "Claude/GPT Session"
+                            windowData: root.thirdPartySessionWindow(root.selectedData())
+                            pending: windowData === null
+                            visible: root.selectedProvider === "antigravity" && (!pending || !root.hasUsageData(root.selectedData()))
+                        }
 
-                        Column {
-                            width: parent.width
-                            spacing: Theme.spacingS
-
-                            StyledText {
-                                text: "Extra usage"
-                                font.pixelSize: Theme.fontSizeLarge
-                                font.weight: Font.Bold
-                                color: Theme.surfaceText
-                            }
-
-                            ProgressTrack {
-                                value: 0
-                                fillColor: Theme.primary
-                            }
-
-                            Row {
-                                width: parent.width
-
-                                StyledText {
-                                    text: root.extraUsageText(root.selectedData())
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    color: Theme.surfaceText
-                                    width: parent.width * 0.75
-                                    elide: Text.ElideRight
-                                }
-
-                                StyledText {
-                                    text: "0% used"
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    color: root.mutedColor
-                                    width: parent.width * 0.25
-                                    horizontalAlignment: Text.AlignRight
-                                }
-                            }
+                        UsageSection {
+                            title: "Claude/GPT Weekly"
+                            windowData: root.thirdPartyWeeklyWindow(root.selectedData())
+                            pending: windowData === null
+                            visible: root.selectedProvider === "antigravity" && (!pending || !root.hasUsageData(root.selectedData()))
                         }
                     }
                 }
