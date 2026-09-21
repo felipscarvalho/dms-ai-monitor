@@ -22,7 +22,10 @@ cp "$src_dir/assets/gemini.svg" "$dest_dir/assets/gemini.svg"
 printf 'Installed %s to %s\n' "$plugin_id" "$dest_dir"
 
 plugin_reloaded=false
-if command -v qs >/dev/null 2>&1; then
+if command -v dms >/dev/null 2>&1 &&
+  dms ipc call plugins reload "$plugin_id" >/dev/null 2>&1; then
+  plugin_reloaded=true
+elif command -v qs >/dev/null 2>&1; then
   if qs ipc -p /usr/share/quickshell/dms call plugins reload "$plugin_id" >/dev/null 2>&1 ||
     env -u LD_LIBRARY_PATH qs ipc -p /usr/share/quickshell/dms call plugins reload "$plugin_id" >/dev/null 2>&1; then
     plugin_reloaded=true

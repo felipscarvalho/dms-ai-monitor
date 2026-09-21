@@ -26,11 +26,8 @@ PluginComponent {
 
     readonly property int highestUsedPercent: {
         let maxUsed = 0;
-        for (let i = 0; i < providers.length; i++) {
-            const windows = [sessionUsageWindow(providers[i]), weeklyUsageWindow(providers[i])];
-            for (let j = 0; j < windows.length; j++)
-                maxUsed = Math.max(maxUsed, usedPercentOf(windows[j]));
-        }
+        for (let i = 0; i < providers.length; i++)
+            maxUsed = Math.max(maxUsed, providerUsedPercent(providers[i]));
         return maxUsed;
     }
 
@@ -299,11 +296,31 @@ PluginComponent {
         return Math.round(Number(window?.usedPercent) || 0);
     }
 
-    function compactProviderText(item) {
-        const window = usageSummaryWindow(item);
-        if (!window)
-            return providerLabel(item?.provider || "") + " ?";
-        return providerLabel(item.provider) + " " + usedPercentOf(window) + "%";
+    function providerUsedPercent(item) {
+        const windows = [sessionUsageWindow(item), weeklyUsageWindow(item)];
+        if (item?.provider === "claude")
+            windows.push(item?.usage?.tertiary || null);
+        if (item?.provider === "antigravity") {
+            windows.push(thirdPartySessionWindow(item));
+            windows.push(thirdPartyWeeklyWindow(item));
+        }
+
+        let maxUsed = 0;
+        for (let i = 0; i < windows.length; i++)
+            maxUsed = Math.max(maxUsed, usedPercentOf(windows[i]));
+        return maxUsed;
+    }
+
+    function providerStatusColor(item) {
+        if (item?.error)
+            return Theme.error;
+
+        const used = providerUsedPercent(item);
+        if (used >= 90)
+            return Theme.error;
+        if (used >= 70)
+            return Theme.warning;
+        return Theme.widgetTextColor || Theme.surfaceText;
     }
 
     function resetText(window, provider) {
@@ -380,18 +397,36 @@ PluginComponent {
         Row {
             spacing: Theme.spacingS
 
-            DankIcon {
-                name: "smart_toy"
-                size: root.iconSize
-                color: root.statusColor
-                anchors.verticalCenter: parent.verticalCenter
-            }
+            Repeater {
+                model: root.providerOrder
 
-            StyledText {
-                text: root.loading && root.providers.length === 0 ? "AI ..." : root.providers.map(p => root.compactProviderText(p)).join(" ")
-                font.pixelSize: Theme.barTextSize(root.barThickness, root.barConfig?.fontScale)
-                color: Theme.widgetTextColor || Theme.surfaceText
-                anchors.verticalCenter: parent.verticalCenter
+                Row {
+                    id: compactProvider
+
+                    required property string modelData
+                    readonly property var dataItem: root.providerData(modelData)
+                    readonly property var usageWindow: root.usageSummaryWindow(dataItem)
+
+                    spacing: Theme.spacingXS
+
+                    DankSVGIcon {
+                        width: root.iconSize
+                        height: root.iconSize
+                        size: root.iconSize
+                        source: root.providerIcon(compactProvider.modelData)
+                        colorOverride: root.providerStatusColor(compactProvider.dataItem)
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    StyledText {
+                        text: compactProvider.usageWindow
+                            ? root.usedPercentOf(compactProvider.usageWindow) + "%"
+                            : (root.loading ? "…" : "?")
+                        font.pixelSize: Theme.barTextSize(root.barThickness, root.barConfig?.fontScale)
+                        color: root.providerStatusColor(compactProvider.dataItem)
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
             }
         }
     }
