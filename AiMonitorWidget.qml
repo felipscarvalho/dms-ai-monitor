@@ -423,7 +423,7 @@ PluginComponent {
                             ? root.usedPercentOf(compactProvider.usageWindow) + "%"
                             : (root.loading ? "…" : "?")
                         font.pixelSize: Theme.barTextSize(root.barThickness, root.barConfig?.fontScale)
-                        color: root.providerStatusColor(compactProvider.dataItem)
+                        color: Theme.widgetTextColor || Theme.surfaceText
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
